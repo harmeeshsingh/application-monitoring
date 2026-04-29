@@ -1,0 +1,283 @@
+provider "aws" {
+  region = "us-east-1"  # Change to your AWS region
+}
+
+#  Create VPC for EKS
+module "vpc" {
+  source = "terraform-aws-modules/vpc/aws"
+  name   = "eks-vpc"
+  cidr   = "10.0.0.0/16"
+  azs    = ["us-east-1a", "us-east-1b"]# Change to your AWS Availability Zone
+  public_subnets  = ["10.0.1.0/24", "10.0.2.0/24"]
+  private_subnets = ["10.0.3.0/24", "10.0.4.0/24"]
+  enable_nat_gateway = true
+}
+
+#  Create IAM Role for EKS
+resource "aws_iam_role" "eks_role" {
+  name = "eks-cluster-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Action = "sts:AssumeRole"
+      Effect = "Allow"
+      Principal = {
+        Service = ["eks.amazonaws.com", "ec2.amazonaws.com"]
+      }
+    }]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "eks_policy" {
+  role       = aws_iam_role.eks_role.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEKSClusterPolicy"
+}
+resource "aws_iam_role_policy_attachment" "eks_worker_node" {
+  role       = aws_iam_role.eks_role.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy"
+}
+
+resource "aws_iam_role_policy_attachment" "eks_cni_policy" {
+  role       = aws_iam_role.eks_role.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy"
+}
+
+resource "aws_iam_role_policy_attachment" "eks_ec2_policy" {
+  role       = aws_iam_role.eks_role.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
+}
+
+
+#  Create EKS Cluster
+resource "aws_eks_cluster" "eks" {
+  name     = "self-healing-eks"
+  role_arn = aws_iam_role.eks_role.arn
+  vpc_config {
+    subnet_ids = module.vpc.public_subnets
+  }
+}
+
+# Create Node Group (Auto Scaling)
+resource "aws_eks_node_group" "self_healing_nodes" {
+  cluster_name    = aws_eks_cluster.eks.name
+  node_group_name = "self-healing-node-group"
+  node_role_arn   = aws_iam_role.eks_role.arn
+  subnet_ids      = module.vpc.private_subnets
+  instance_types  = ["t3.medium"]
+  scaling_config {
+    desired_size = 2
+    max_size     = 3
+    min_size     = 1
+  }
+}
+
+
+---------------
+
+Self healing using AWS EKS, Probes, Autoscaling group, Ansible, Terraform after this yesterdays setup, today we did -
+ 
+ 
+ 
+sudo apt update && sudo apt upgrade -y 
+curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip" 
+sudo apt install unzip
+unzip awscliv2.zip
+sudo ./aws/install
+aws --version
+curl -fsSL https://releases.hashicorp.com/terraform/1.7.0/terraform_1.7.0_linux_amd64.zip -o terraform.zip
+unzip terraform.zip
+sudo mv terraform /usr/local/bin/
+terraform -version
+ 
+aws configure
+AWS Access Key ID [None]: acess key id
+AWS Secret Access Key [None]: add the secrect key 
+Default region name [None]: us-east-1
+Default output format [None]: json
+ 
+curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+chmod +x kubectl
+sudo mv kubectl /usr/local/bin/
+kubectl version --client
+ 
+sudo apt install -y ansible 
+ansible --version
+ 
+mkdir self-healing-script
+cd self-healing-script
+ 
+sudo vi main.tf
+i
+provider "aws" {
+  region = "us-east-1"       # Change to your AWS region
+}
+ 
+#  Create VPC for EKS
+module "vpc" {
+  source = "terraform-aws-modules/vpc/aws"
+  name   = "eks-vpc"
+  cidr   = "10.0.0.0/16"
+  azs    = ["us-east-1a", "us-east-1b"]        # Change to your AWS region
+  public_subnets  = ["10.0.1.0/24", "10.0.2.0/24"]
+  private_subnets = ["10.0.3.0/24", "10.0.4.0/24"]
+  enable_nat_gateway = true
+}
+ 
+#  Create IAM Role for EKS
+resource "aws_iam_role" "eks_role" {
+  name = "eks-cluster-role"
+ 
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Action = "sts:AssumeRole"
+      Effect = "Allow"
+      Principal = {
+        Service = ["eks.amazonaws.com", "ec2.amazonaws.com"]
+      }
+    }]
+  })
+}
+ 
+resource "aws_iam_role_policy_attachment" "eks_policy" {
+  role       = aws_iam_role.eks_role.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEKSClusterPolicy"
+}
+resource "aws_iam_role_policy_attachment" "eks_worker_node" {
+  role       = aws_iam_role.eks_role.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy"
+}
+ 
+resource "aws_iam_role_policy_attachment" "eks_cni_policy" {
+  role       = aws_iam_role.eks_role.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy"
+}
+ 
+resource "aws_iam_role_policy_attachment" "eks_ec2_policy" {
+  role       = aws_iam_role.eks_role.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
+}
+ 
+ 
+#  Create EKS Cluster
+resource "aws_eks_cluster" "eks" {
+  name     = "self-healing-eks"
+  role_arn = aws_iam_role.eks_role.arn
+  vpc_config {
+    subnet_ids = module.vpc.public_subnets
+  }
+  access_config {
+    authentication_mode = "API_AND_CONFIG_MAP"
+  }
+  depends_on = [
+    aws_iam_role_policy_attachment.eks_cluster_policy
+  ]
+}
+ 
+# Create Node Group (Auto Scaling)
+resource "aws_eks_node_group" "self_healing_nodes" {
+  cluster_name    = aws_eks_cluster.eks.name
+  node_group_name = "self-healing-node-group"
+  node_role_arn   = aws_iam_role.eks_role.arn
+  subnet_ids      = module.vpc.private_subnets
+  instance_types  = ["t3.medium"]
+  scaling_config {
+    desired_size = 2
+    max_size     = 3
+    min_size     = 1
+  }
+}
+data "aws_caller_identity" "current" {}
+resource "aws_eks_access_entry" "access" {
+  cluster_name  = aws_eks_cluster.eks.name
+  principal_arn = data.aws_caller_identity.current.arn
+  # add this block
+  kubernetes_groups = ["eks-viewers"]
+}
+resource "aws_eks_access_policy_association" "view" {
+  cluster_name  = aws_eks_cluster.eks.name
+  principal_arn = data.aws_caller_identity.current.arn
+  policy_arn = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSViewPolicy"
+  access_scope {
+    type = "cluster"
+  }
+}
+:wq
+ 
+ 
+sudo vi rbac-view.yaml
+i 
+and add this : 
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: eks-view-binding
+subjects:
+- kind: Group
+  name: eks-viewers
+  apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: ClusterRole
+  name: view
+  apiGroup: rbac.authorization.k8s.io
+:wq
+ 
+ 
+terraform init
+terraform plan
+terraform validate
+terraform apply --auto-approve
+ 
+Go to AWS -> EKS-> Clusters - to see created clusters
+ 
+aws eks update-kubeconfig --name self-healing-eks --region us-east-1
+ 
+ubuntu@ip-172-31-28-242:~/self-healing-script$ kubectl get nodes
+NAME                         STATUS   ROLES    AGE   VERSION
+ip-10-0-3-252.ec2.internal   Ready    <none>   29m   v1.35.3-eks-bbe087e
+ip-10-0-4-21.ec2.internal    Ready    <none>   29m   v1.35.3-eks-bbe087e
+ 
+sudo vi self-healing-app.yaml
+i
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: self-healing-app
+  labels:
+    app: self-healing
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: self-healing
+  template:
+    metadata:
+      labels:
+        app: self-healing
+    spec:
+      containers:
+      - name: self-healing-container
+        image: nginx
+        ports:
+        - containerPort: 80
+        resources:
+          requests:
+           cpu: "100m"
+          limits:
+           cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 10
+          periodSeconds: 5
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 5
+          periodSeconds: 3
+:wq
+ 
+kubectl apply -f self-healing-app.yaml

@@ -1,0 +1,314 @@
+>>>>>>>>>>>>>>>> Terraform to provision redundant infrastructure (active-passive setups) and validate automatic traffic redirection <<<<<<<<<<<<<<
+
+
+Install Prerequisites
+
+Ensure you have the following installed:
+
+Terraform → Install Guide
+AWS CLI → Install Guide
+IAM User with Route 53 & EC2 permissions
+Create .pem or .ppk file to access instance.  
+
+To check if Terraform is installed:
+terraform -v
+
+To check if AWS CLI is configured:
+aws configure list
+
+To connect your base machine to aws account you need access key and secret key which you need to create from IAM > user > create access key  
+aws configure 
+
+To implement redundant infrastructure using Terraform, 
+we'll create an active-passive setup with AWS services. 
+This includes provisioning redundant EC2 instances, an Elastic Load Balancer (ELB), Auto Scaling, and Route 53 for automatic failover and traffic redirection.
+
+
+Active-Passive Setup (Failover mechanism)
+Deploy two EC2 instances.
+Use Route 53 health checks to monitor the primary instance.
+Route traffic to the another instance if the primary fails.
+
+
+
+1. Redundant Infrastructure with Failover (Active-Passive)
+
+Two EC2 instances (Active & Passive) in different subnets.
+Primary (Active) instance will handle traffic initially.
+Secondary (Passive) instance will take over if the primary fails. 
+
+2. Automatic Traffic Redirection via Route 53
+
+Route 53 Health Check monitors the Active instance.
+If the Active instance fails (e.g., stops responding), Route 53 will automatically switch traffic to the Passive instance.
+
+
+Use a Dummy Hosted Zone
+Instead of using your actual domain, create a temporary private hosted zone in Route 53:
+
+Step 1: Create a Test Hosted Zone
+
+aws route53 create-hosted-zone --name “test.local.com" --caller-reference "test-$(date +%s)”
+
+
+Note: Take hostedzone id once you have created hosted zone and we need to add in main.tf file (line - 141)
+
+
+Create ------  sudo vi main.tf -------- terraform file and add below config: 
+
+
+..............................
+
+
+provider "aws" {
+  region = "us-east-2"  # Change as needed
+}
+
+# Fetch VPC & Subnets Dynamically
+data "aws_vpc" "default" {
+  default = true
+}
+
+data "aws_subnets" "default" {
+  filter {
+    name   = "vpc-id"
+    values = [data.aws_vpc.default.id]
+  }
+}
+
+# Fetch latest Amazon Linux 2 AMI
+data "aws_ami" "latest_amazon_linux" {
+  most_recent = true
+  owners      = ["amazon"]
+  filter {
+    name   = "name"
+    values = ["amzn2-ami-hvm-*"]
+  }
+}
+
+# Create Security Group (Allow SSH & HTTP)
+resource "aws_security_group" "allow_ssh" {
+  vpc_id = data.aws_vpc.default.id
+  name   = "allow_ssh"
+
+  ingress {
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  ingress {
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+}
+
+# Launch Active EC2 Instance
+resource "aws_instance" "active" {
+  ami             = data.aws_ami.latest_amazon_linux.id
+  instance_type   = "t2.micro"
+  subnet_id       = element(data.aws_subnets.default.ids, 0)
+ #security_groups = [aws_security_group.allow_ssh.name]
+  vpc_security_group_ids = [aws_security_group.allow_ssh.id]
+  tags = {
+    Name = "Active-Instance"
+  }
+}
+
+# Launch Passive EC2 Instance
+resource "aws_instance" "passive" {
+  ami             = data.aws_ami.latest_amazon_linux.id
+  instance_type   = "t2.micro"
+  subnet_id       = element(data.aws_subnets.default.ids, 1)
+  #security_groups = [aws_security_group.allow_ssh.name]
+  vpc_security_group_ids = [aws_security_group.allow_ssh.id]
+  tags = {
+    Name = "Passive-Instance"
+  }
+}
+
+# Route 53 Hosted Zone (Replace with Hosted Zone ID from Step 2)
+data "aws_route53_zone" "primary" {
+  zone_id = "Z02145102I3UGRWQH4143"    #Replace with actual Hosted ZoneID
+}
+
+# Create Route 53 DNS Failover Record
+resource "aws_route53_record" "failover_dns" {
+  zone_id = data.aws_route53_zone.primary.zone_id
+  name    = "test.local.com"
+  type    = "A"
+
+  failover_routing_policy {
+    type = "PRIMARY"
+  }
+
+  set_identifier = "active-instance"
+  health_check_id = aws_route53_health_check.ec2.id
+  records        = [aws_instance.active.public_ip]
+  ttl            = 30
+}
+
+resource "aws_route53_record" "failover_dns_passive" {
+  zone_id = data.aws_route53_zone.primary.zone_id
+  name    = "test.local.com"
+  type    = "A"
+
+  failover_routing_policy {
+    type = "SECONDARY"
+  }
+
+  set_identifier = "passive-instance"
+  records        = [aws_instance.passive.public_ip]
+  ttl            = 30
+}
+
+# Route53 Health Check for Active Instance
+
+resource "aws_route53_health_check" "ec2" {
+  ip_address          = aws_instance.active.public_ip  # Use the IP of the EC2 instance
+  port               = 22  # You can change this to your service port (e.g., 80 for HTTP)
+  type               = "TCP"  # Use HTTP if monitoring a web service
+  #resource_path      = "/"
+  failure_threshold  = 3
+  request_interval   = 30
+
+  tags = {
+    Name = "EC2-Health-Check"
+  }
+}
+
+output "active_public_ip" {
+  value = aws_instance.active.public_ip
+}
+output "active_instance_id" {
+  value = aws_instance.active.id
+}
+
+
+......................................
+
+
+
+Once you save the config file run below command to create the required infra.
+
+
+terraform init
+
+terraform plan
+
+terraform validate
+
+terraform apply -auto-approve
+
+
+
+Now, lets do some checkup’s: 
+
+>>>>> Run the following AWS CLI command to list your Route 53 hosted zones:
+
+aws route53 list-hosted-zones --query 'HostedZones[*].Name'
+
+>>>>> Run below command to get your Hosted Zone ID:
+
+aws route53 list-hosted-zones --query 'HostedZones[*].[Id, Name]'
+
+>>>>> Check if an A Record Exists
+
+aws route53 list-resource-record-sets --hosted-zone-id $(aws route53 list-hosted-zones --query "HostedZones[?Name=='test.local.'].Id" --output text)
+
+
+
+#### Validate the Setup
+
+>>>> Check Active Instance SSH Access:
+
+ssh -i your-key.pem ec2-user@$(terraform output -raw active_public_ip)
+
+If successful, your active instance is up. 
+
+------------ Simulate Failure & Test Failover -----------
+
+>>>>>> Stop the Active instance
+
+aws ec2 stop-instances --instance-ids $(terraform output -raw active_instance_id) 
+
+Check if the DNS fails over to the Passive instance: after a few minutes, 
+
+check if traffic is going to the passive server:   dig test.local.com 
+
+[ Look for below : once you run above command   ANSWER SECTION:
+
+test.local.com.		30	IN	A	18.116.38.222 ]
+
+Here your primary instance that will route traffic to passive instance which will eventually become primary for traffic. 
+
+
+So, if IP change to passive instance you have successfully implemented the auto failover.
+
+
+>>>>>>>> Now, Restore Active Server
+
+aws ec2 start-instances --instance-ids $(terraform output -raw active_instance_id)
+
+
+dig test.local.com
+
+
+##### Clean Up
+
+Once testing is done, destroy infrastructure :
+
+terraform destroy -auto-approve
+
+
+Also, navigate to Route53 in aws console and delete the hosted zone if any.
+
+
+………………………………………………………………………………………………………………………………………
+
+ Troubleshooting steps incase you are facing any issue.
+
+
+
+Test DNS Resolution
+
+Use Route 53 Nameservers:  First, check your hosted zone nameservers:   
+
+aws route53 get-hosted-zone --id <hosted zone id>--query "DelegationSet.NameServers"   
+
+Output (example):   
+
+"ns-2048.awsdns-64.com", 
+"ns-2049.awsdns-65.net",  
+"ns-2050.awsdns-66.org",  
+"ns-2051.awsdns-67.co.uk"]
+  
+Query Route 53 Directly:  
+
+dig @ns-2048.awsdns-64.com test.local.com  
+
+Expected Output:   
+
+;; ANSWER SECTION: test.local.com.  300  IN  A  203.0.113.10
+ 
+If It Still Fails, Check Your /etc/resolv.conf:   cat /etc/resolv.conf   If your nameserver is 1.1.1.1 or 8.8.8.8, 
+change it to AWS Route 53 nameservers:  for example:   nameserver 49.205.72.130 nameserver 183.82.243.66 
+
+Final Test Run:
+
+dig test.local.com  Output: 
+
+;; ANSWER SECTION:
+test.local.com.  300  IN  A  203.0.113.10
+
+

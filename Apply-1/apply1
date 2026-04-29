@@ -1,0 +1,31 @@
+SRE Batch
+Apply 1 (Hands on)
+Submission – 
+
+>>>AWS SRE Lab: Generating and Analyzing a System Performance Report
+
+>>>Lab Overview
+This lab is designed to allow learners to generate and analyze system performance reports on AWS. It will involve deploying an application, monitoring its behavior, capturing logs and metrics, and analyzing faults, bottlenecks, and anomalies. The goal is to identify system performance issues and document a comprehensive report with insights and remediation recommendations.
+
+>>>Objective:
+
+Deploy an application on AWS EC2 or EKS.
+Set up CloudWatch monitoring for logs and metrics.
+Generate an incident report capturing CPU, memory, network latency, and error logs.
+Perform Root Cause Analysis (RCA) on faults identified.
+Document remediation recommendations for improving reliability.
+
+
+>>>Lab: Complete the lab as per this https://www.eksworkshop.com/docs/introduction 
+https://www.eksworkshop.com/docs/fundamentals/ 
+
+Submission of Findings
+             
+Report Submission Format
+>>>Your final deliverable should include:
+
+Executive Summary: Brief description of findings.
+Fault Identification: Key performance issues observed.
+Performance Bottleneck Analysis: Metrics supporting findings.
+Root Cause Analysis (RCA) Report: Breakdown of system behavior.
+Remediation Action Plan: Steps to prevent recurrence.

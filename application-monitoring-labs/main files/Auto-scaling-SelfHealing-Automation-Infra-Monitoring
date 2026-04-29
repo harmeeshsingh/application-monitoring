@@ -1,0 +1,396 @@
+>>>>>>>>>>>>>>>>>>Locust(Traffic Simulation) and SelfHealing Automation using terraform, AWS service (EC2, AutoScalingGroup, Loadbalancer)<<<<<<<<<<<<<<<<<<<<
+
+Below is a detailed step-by-step guide to implementing self-healing infrastructure using Terraform on AWS.
+
+This setup will have :
+
+Deploy an auto-scaling web server cluster using Terraform.
+Use AWS CloudWatch to monitor unhealthy instances.
+Use AWS Auto Scaling to replace unhealthy instances automatically.
+Simulate traffic spikes using Locust.
+Additonally you can - Implement AWS Lambda to handle automated recovery (Demo purpose).
+
+
+> Create a new project folder for Terraform:
+
+mkdir self-healing-terraform # folder name depends on you
+cd self-healing-terraform
+
+
+>Step 1: Install Required Tools
+This step requires no file creation, just installations.
+
+Terraform
+AWS CLI
+Locust for traffic simulation
+
+1.1 Install Terraform
+
+curl -fsSL https://apt.releases.hashicorp.com/gpg | sudo tee /usr/share/keyrings/hashicorp-archive-keyring.gpg >/dev/null
+
+echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/hashicorp.list
+
+sudo apt update && sudo apt install terraform -y
+
+
+> Install Locust for traffic simulation
+
+pip install locust
+
+##Create a locust file
+
+vi locustfile.py
+
+##Add following config and save
+
+................
+
+
+from locust import HttpUser, task
+
+class LoadTest(HttpUser):
+    @task
+    def index(self):
+        self.client.get(“/")
+
+
+....................
+
+1.2 Install AWS CLI
+
+sudo apt install awscli -y
+aws --version
+
+
+Configure AWS credentials:
+
+aws configure
+
+Enter your:
+AWS Access Key
+AWS Secret Key
+Region (us-east-1, or your preferred AWS region)
+Format: json
+
+
+
+
+Step 2: Create a Terraform Project
+
+
+
+📂 Terraform Files include 
+
+We will write Terraform script to create: 
+
+EC2 instance
+Auto Scaling Group
+Application Load Balancer
+Define security group
+Configure Monitoring with CloudWatch
+Deploy Lambda Using Terraform
+Configure CloudWatch to Trigger Lambda
+
+Scenario 1 : Unhealthy Instance Detected and Self-Healing Mechanism using Autoscaling group
+If an EC2 instance fails, Auto Scaling Group will replace it.
+
+Scenario 2:
+CloudWatch can trigger an AWS Lambda function to restart the new instance.
+
+mkdir lambda
+cd lambda
+
+touch lambda_function.py
+vi lambda_function.py
+
+Add below configuration and save it (sample format how lamda function can be created)
+
+
+..................
+
+
+import boto3
+
+ec2 = boto3.client('ec2')
+autoscaling = boto3.client('autoscaling')
+
+def lambda_handler(event, context):
+    instance_id = event['detail']['instance-id']
+
+    # Check instance health
+    response = ec2.describe_instance_status(InstanceIds=[instance_id])
+    status = response['InstanceStatuses'][0]['InstanceState']['Name']
+    
+    if status in ["stopped", "terminated"]:
+        print(f"Instance {instance_id} is down. Replacing...")
+
+        asg_response = autoscaling.describe_auto_scaling_instances(InstanceIds=[instance_id])
+        asg_name = asg_response['AutoScalingInstances'][0]['AutoScalingGroupName']
+
+        autoscaling.terminate_instance_in_auto_scaling_group(
+            InstanceId=instance_id,
+            ShouldDecrementDesiredCapacity=False
+        )
+        print(f"Instance {instance_id} replaced in ASG: {asg_name}")
+
+    return {"statusCode": 200, "body": "Self-Healing Completed!”}
+
+
+............................
+
+
+## Zip Lambda Function using below command
+
+zip lambda_function.zip lambda_function.py
+
+.....................................................
+
+
+>> Now, lets create terraform file 
+
+cd .. # into /self-healing-terraform/ #step back from lambda folder.
+
+touch main.tf output.tf variable.tf
+
+vi main.tf
+
+Add below config and save it.
+
+..................................
+
+provider "aws" {
+  region = "us-east-2"
+}
+
+# Fetch the default VPC dynamically
+data "aws_vpc" "default" {
+  default = true
+}
+
+# Fetch public subnets dynamically
+data "aws_subnets" "public" {
+  filter {
+    name   = "vpc-id"
+    values = [data.aws_vpc.default.id]
+  }
+}
+
+# Define IAM Role for Lambda Execution
+resource "aws_iam_role" "lambda_exec" {
+  name = "lambda_exec_role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action    = "sts:AssumeRole"
+        Effect    = "Allow"
+        Principal = {
+          Service = "lambda.amazonaws.com"
+        }
+      },
+    ]
+  })
+}
+
+# Define the Launch Configuration for Auto Scaling
+resource "aws_launch_configuration" "web_lc" {
+  name = "web-lc"
+  
+  image_id        = "ami-0cb91c7de36eed2cb" # Example ubuntu AMI ID for a web server (change accordingly)
+  instance_type   = "t2.micro"
+  security_groups = [aws_security_group.web_sg.id]
+  user_data       = <<-EOF
+                  #!/bin/bash
+                  apt update -y
+                  apt install -y apache2
+                  systemctl start apache2
+                  systemctl enable apache2
+                  EOF
+}
+
+# Define the Auto Scaling Group
+resource "aws_autoscaling_group" "web_asg" {
+  desired_capacity     = 2
+  min_size             = 1
+  max_size             = 3
+  vpc_zone_identifier  = data.aws_subnets.public.ids  # Use the dynamically fetched subnets
+  launch_configuration = aws_launch_configuration.web_lc.id
+  health_check_type    = "EC2"
+  health_check_grace_period = 300
+  force_delete         = true
+
+  tag {
+    key                 = “Name" ## Change to your key value pair
+    value               = "web-server-instance"
+    propagate_at_launch = true
+  }
+}
+
+# Define the Security Group for the web server instances
+resource "aws_security_group" "web_sg" {
+  name        = "web-sg"
+  description = "Allow inbound HTTP and SSH traffic"
+  vpc_id      = data.aws_vpc.default.id
+  
+  ingress {
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+  
+  ingress {
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+}
+
+# Define the Application Load Balancer
+resource "aws_lb" "web_alb" {
+  name               = "web-load-balancer"
+  internal           = false
+  load_balancer_type = "application"
+  security_groups    = [aws_security_group.web_sg.id]
+  subnets            = data.aws_subnets.public.ids  # Use the dynamically fetched subnets
+  
+  enable_deletion_protection = false
+  enable_cross_zone_load_balancing = true
+  idle_timeout = 60
+}
+
+# Define the Load Balancer Target Group
+resource "aws_lb_target_group" "web_tg" {
+  name     = "web-target-group"
+  vpc_id   = data.aws_vpc.default.id  # Use the dynamically fetched VPC
+  port     = 80
+  protocol = "HTTP"
+}
+
+# Attach Target Group to the Load Balancer Listener
+resource "aws_lb_listener" "web_listener" {
+  load_balancer_arn = aws_lb.web_alb.arn
+  port              = 80
+  protocol          = "HTTP"
+
+  default_action {
+    type             = "fixed-response"
+    fixed_response {
+      status_code = 200
+      content_type = "text/plain"
+      message_body = "OK"
+    }
+  }
+}
+
+# Attach Auto Scaling Group to the Load Balancer Target Group
+resource "aws_autoscaling_attachment" "web_asg_attachment" {
+  autoscaling_group_name = aws_autoscaling_group.web_asg.id
+  lb_target_group_arn  = aws_lb_target_group.web_tg.arn
+}
+
+# Define Auto Scaling Policy for Scale Out
+resource "aws_autoscaling_policy" "scale_out" {
+  name                   = "scale-out-policy"
+  scaling_adjustment      = 1
+  adjustment_type         = "ChangeInCapacity"
+  cooldown                = 300
+  autoscaling_group_name   = aws_autoscaling_group.web_asg.name
+}
+
+# Define CloudWatch Metric Alarm for high CPU usage
+resource "aws_cloudwatch_metric_alarm" "high_cpu" {
+  alarm_name                = "high-cpu-alarm"
+  comparison_operator       = "GreaterThanThreshold"
+  evaluation_periods        = 1
+  metric_name               = "CPUUtilization"
+  namespace                 = "AWS/EC2"
+  period                    = 300
+  statistic                 = "Average"
+  threshold                 = 80
+  alarm_description         = "Triggered when CPU usage is above 80%"
+  insufficient_data_actions = []
+
+  alarm_actions = [
+    aws_autoscaling_policy.scale_out.arn
+  ]
+
+  dimensions = {
+    AutoScalingGroupName = aws_autoscaling_group.web_asg.name
+  }
+}
+
+
+.................................................
+
+
+>>> Now, Edit output.tf file and save with below config:  
+
+................
+
+
+output "alb_dns_name" {
+  value = aws_lb.web_alb.dns_name
+}
+
+.................
+
+>>> Now, Edit variable.tf file and save with below config:
+
+..............................
+
+variable "region" {
+  default = "us-east-2"
+}
+
+variable "instance_type" {
+  default = "t2.micro"
+}
+
+.............................
+
+Now, initialise terraform.
+
+terraform init
+terraform plan
+terraform validate
+terraform apply -auto-approve
+
+
+
+>>> To run locust for traffic simulation 
+ 
+locust -f locustfile.py
+
+And to stop : ctrl+c
+
+Below is the visual of the locust simulation you need to add access http://0.0.0.0:8089 and add host which is load balancer dns which you can find from loadbalancer from aws console once you have created using terraform scrip
+
+
+
+Stop an EC2 Instance to Test Self-Healing 
+
+aws ec2 stop-instances --instance-ids i-xxxxxxxxxx
+
+
+
+>>Step 8: Cleanup
+
+To remove all resources
+
+terraform destroy -auto-approve
+
+
+
+Congratulation >>>>>>>> You have Successfully implemented a Automated self-healing Terraform deployment :
+
+AWS Auto Scaling to automatically replace unhealthy instances.
+AWS CloudWatch to monitor CPU & health metrics.
+Locust to simulate traffic
+
+AWS Lambda to trigger automated recovery actions if integrated in main.tf.
+
+
+

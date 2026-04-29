@@ -1,0 +1,1438 @@
+Pre-requisites (Run first) - Based on Ubuntu Machine 
+
+ 
+
+sudo apt update && sudo apt upgrade -y 
+
+ 
+
+ 
+
+ 
+
+Install Python 
+
+Ubuntu usually has Python, but install properly: 
+
+ 
+
+sudo apt install -y python3 python3-pip 
+
+ 
+
+Verify: 
+
+ 
+
+python3 --version 
+
+pip3 --version 
+
+ 
+
+ 
+
+Install AWS CLI 
+
+Install: 
+
+ 
+
+curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip" 
+
+unzip awscliv2.zip 
+
+sudo ./aws/install 
+
+ 
+
+Verify: 
+
+ 
+
+aws --version 
+
+ 
+
+ 
+
+Configure AWS: 
+
+ 
+
+aws configure 
+
+ 
+
+Enter: 
+
+Access Key 
+
+Secret Key 
+
+Region (e.g., ap-south-1) 
+
+Output format (json) 
+
+ 
+
+Install Terraform 
+
+Tool: Terraform 
+
+ 
+
+wget https://releases.hashicorp.com/terraform/1.8.5/terraform_1.8.5_linux_amd64.zip 
+
+unzip terraform_1.8.5_linux_amd64.zip 
+
+sudo mv terraform /usr/local/bin/ 
+
+ 
+
+Verify: 
+
+ 
+
+terraform -v 
+
+ 
+
+ 
+
+Install Ansible 
+
+Tool: Ansible 
+
+ 
+
+sudo apt install -y ansible 
+
+ 
+
+Verify: 
+
+ 
+
+ansible --version 
+
+ 
+
+ 
+
+Install kubectl (Kubernetes CLI) 
+
+ 
+
+curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" 
+
+chmod +x kubectl 
+
+sudo mv kubectl /usr/local/bin/ 
+
+ 
+
+Verify: 
+
+ 
+
+kubectl version --client 
+
+Introduction to Terraform 
+ 
+
+What is Terraform 
+
+Terraform is an Infrastructure as Code (IaC) tool used to provision and manage infrastructure automatically. 
+
+It allows engineers to define infrastructure using code instead of manual configuration. 
+
+Terraform was developed by HashiCorp. 
+
+Using Terraform we can create: 
+
+Virtual machines 
+
+Networks 
+
+Kubernetes clusters 
+
+Databases 
+
+Storage systems 
+
+Load balancers 
+
+ 
+
+Why Terraform is Important 
+
+Before Infrastructure as Code, infrastructure was managed manually. 
+
+Example: 
+
+Engineers had to manually create resources in cloud consoles such as: 
+
+Amazon Web Services 
+
+Microsoft Azure 
+
+Google Cloud 
+
+Problems with manual infrastructure management: 
+
+configuration errors 
+
+lack of reproducibility 
+
+difficult environment replication 
+
+slow provisioning 
+
+Terraform solves these problems by allowing infrastructure to be defined, versioned, and automated using code. 
+
+ 
+
+2. What is Infrastructure as Code (IaC) 
+
+Infrastructure as Code is the practice of managing infrastructure using configuration files. 
+
+Instead of manually creating servers, we define them in code. 
+
+Example Terraform configuration: 
+
+ 
+
+resource "aws_instance" "web" { 
+
+  ami           = "ami-123456" 
+
+  instance_type = "t2.micro" 
+
+} 
+
+ 
+
+This code tells Terraform to create an EC2 instance. 
+
+Benefits of IaC: 
+
+automation 
+
+repeatability 
+
+version control 
+
+faster deployments 
+
+ 
+
+3. Terraform Architecture 
+
+Terraform works using several components. 
+
+Terraform CLI 
+
+Command-line interface used to run Terraform commands. 
+
+Examples: 
+
+ 
+
+terraform init 
+
+terraform plan 
+
+terraform apply 
+
+ 
+
+ 
+
+Providers 
+
+Providers allow Terraform to interact with cloud platforms. 
+
+Examples: 
+
+AWS Provider 
+
+Azure Provider 
+
+Google Cloud Provider 
+
+Kubernetes Provider 
+
+Example provider configuration: 
+
+ 
+
+provider "aws" { 
+
+  region = "us-east-1" 
+
+} 
+
+ 
+
+ 
+
+Resources 
+
+Resources represent infrastructure components. 
+
+Examples: 
+
+EC2 instances 
+
+VPC networks 
+
+S3 buckets 
+
+Load balancers 
+
+Example: 
+
+ 
+
+resource "aws_s3_bucket" "data" { 
+
+  bucket = "company-data-bucket" 
+
+} 
+
+ 
+
+ 
+
+State File 
+
+Terraform stores the infrastructure state in a file called: 
+
+ 
+
+terraform.tfstate 
+
+ 
+
+This file tracks: 
+
+what resources exist 
+
+their configuration 
+
+their current status 
+
+ 
+
+4. Terraform Workflow 
+
+Terraform follows a standard workflow. 
+
+Step 1 Initialize 
+
+Initialize the Terraform project. 
+
+ 
+
+terraform init 
+
+ 
+
+This downloads required providers. 
+
+ 
+
+Step 2 Plan 
+
+Terraform generates an execution plan. 
+
+ 
+
+terraform plan 
+
+ 
+
+This shows what infrastructure will be created or modified. 
+
+Example output: 
+
+ 
+
++ aws_instance.web will be created 
+
+ 
+
+ 
+
+Step 3 Apply 
+
+Apply the configuration to create infrastructure. 
+
+ 
+
+terraform apply 
+
+ 
+
+Terraform will provision resources automatically. 
+
+ 
+
+Step 4 Destroy 
+
+Destroy infrastructure when no longer needed. 
+
+ 
+
+terraform destroy 
+
+ 
+
+ 
+
+5. Terraform Configuration Language 
+
+Terraform uses HCL (HashiCorp Configuration Language). 
+
+HCL is designed to be human readable and easy to write. 
+
+Example structure: 
+
+ 
+
+provider 
+
+resource 
+
+variables 
+
+output 
+
+modules 
+
+ 
+
+ 
+
+6. Variables in Terraform 
+
+Variables make Terraform configurations flexible. 
+
+Example: 
+
+ 
+
+variable "instance_type" { 
+
+  default = "t2.micro" 
+
+} 
+
+ 
+
+Use variable: 
+
+ 
+
+instance_type = var.instance_type 
+
+ 
+
+Benefits: 
+
+reusable configurations 
+
+environment specific values 
+
+ 
+
+7. Terraform Modules 
+
+Modules allow reusable infrastructure code. 
+
+Example: 
+
+Instead of writing the same configuration repeatedly, we create modules. 
+
+Example module structure: 
+
+ 
+
+modules/ 
+
+   vpc/ 
+
+   ec2/ 
+
+   rds/ 
+
+ 
+
+Usage: 
+
+ 
+
+module "vpc" { 
+
+  source = "./modules/vpc" 
+
+} 
+
+ 
+
+Benefits: 
+
+reusability 
+
+standardization 
+
+easier maintenance 
+
+ 
+
+8. Terraform State Management 
+
+Terraform state is critical. 
+
+Default state file: 
+
+ 
+
+terraform.tfstate 
+
+ 
+
+Problems with local state: 
+
+difficult for teams 
+
+risk of conflicts 
+
+Best practice: 
+
+Store state remotely. 
+
+Example remote backends: 
+
+**Amazon Web Services S3 
+
+Azure Storage 
+
+Terraform Cloud 
+
+Example remote state: 
+
+ 
+
+backend "s3" { 
+
+  bucket = "terraform-state" 
+
+  key    = "prod/terraform.tfstate" 
+
+  region = "us-east-1" 
+
+} 
+
+ 
+
+ 
+
+9. Terraform Best Practices 
+
+Some important best practices: 
+
+Use version control (Git) 
+
+Use remote state storage 
+
+Separate environments 
+
+Example: 
+
+ 
+
+dev 
+
+stage 
+
+prod 
+
+ 
+
+Use modules for reusable infrastructure. 
+
+Implement proper security policies. 
+
+ 
+
+10. Terraform Example Architecture 
+
+Example: Web application infrastructure 
+
+Components created by Terraform: 
+
+ 
+
+VPC 
+
+Subnets 
+
+EC2 Instances 
+
+Load Balancer 
+
+Security Groups 
+
+Database 
+
+ 
+
+Architecture: 
+
+ 
+
+Internet 
+
+   ↓ 
+
+Load Balancer 
+
+   ↓ 
+
+Web Servers (EC2) 
+
+   ↓ 
+
+Database 
+
+ 
+
+Terraform can provision this entire infrastructure automatically. 
+
+ 
+
+11. Real World Terraform Use Cases 
+
+Terraform is widely used for: 
+
+Cloud infrastructure provisioning 
+
+Kubernetes cluster creation 
+
+CI/CD infrastructure 
+
+Multi-cloud deployments 
+
+Disaster recovery infrastructure 
+
+Large companies automate their entire cloud infrastructure using Terraform. 
+
+ 
+
+12. Summary 
+
+Terraform is a powerful Infrastructure as Code tool that enables engineers to automate cloud infrastructure deployment. 
+
+Key benefits include: 
+
+Automation consistency reproducibility scalability 
+
+ 
+
+ 
+
+ 
+
+Linux Commands & Usage 
+
+ 
+
+1. File & Directory Management 
+
+List files 
+
+ 
+
+ls 
+
+ls -l      # detailed view 
+
+ls -a      # hidden files 
+
+ 
+
+Use case: Check logs, configs, deployments 
+
+ 
+
+Change directory 
+
+ 
+
+cd /var/log 
+
+cd .. 
+
+cd ~ 
+
+ 
+
+ 
+
+Create files & directories 
+
+ 
+
+touch file.txt 
+
+mkdir testdir 
+
+mkdir -p app/config 
+
+ 
+
+ 
+
+Copy / Move / Delete 
+
+ 
+
+cp file.txt /tmp/ 
+
+mv file.txt /home/ubuntu/ 
+
+rm file.txt 
+
+rm -rf folder/ 
+
+ 
+
+rm -rf → dangerous (used in cleanup scripts) 
+
+ 
+
+2. File Viewing & Editing 
+
+View file content 
+
+ 
+
+cat file.txt 
+
+less file.txt 
+
+head -10 file.txt 
+
+tail -10 file.txt 
+
+tail -f app.log   # live logs 
+
+ 
+
+SRE Use: Monitor real-time logs 
+
+ 
+
+Edit file 
+
+ 
+
+vi file.txt 
+
+nano file.txt 
+
+ 
+
+ 
+
+3. Search & Filtering (VERY IMPORTANT) 
+
+Find text inside file 
+
+ 
+
+grep "error" app.log 
+
+grep -i "failed" app.log 
+
+grep -r "timeout" /var/log/ 
+
+ 
+
+ 
+
+Find files 
+
+ 
+
+find / -name "nginx.conf" 
+
+find . -type f -name "*.log" 
+
+ 
+
+ 
+
+Combine commands (Powerful) 
+
+ 
+
+cat app.log | grep error 
+
+ 
+
+ Real use: 
+
+ 
+
+tail -f app.log | grep ERROR 
+
+ 
+
+ 
+
+4. Process Management 
+
+Check running processes 
+
+ 
+
+ps aux 
+
+top 
+
+htop 
+
+ 
+
+ 
+
+Kill process 
+
+ 
+
+kill -9 <PID> 
+
+pkill nginx 
+
+ 
+
+SRE Use: Kill stuck services 
+
+ 
+
+5. System Monitoring 
+
+CPU & Memory 
+
+ 
+
+top 
+
+free -m 
+
+ 
+
+ 
+
+Disk usage 
+
+ 
+
+df -h 
+
+du -sh * 
+
+ 
+
+ 
+
+System info 
+
+ 
+
+uname -a 
+
+uptime 
+
+ 
+
+ 
+
+6. Networking Commands 
+
+Check IP 
+
+ 
+
+ip a 
+
+ 
+
+ 
+
+Test connectivity 
+
+ 
+
+ping google.com 
+
+ 
+
+ 
+
+Check open ports 
+
+ 
+
+netstat -tulnp 
+
+ 
+
+ 
+
+Test API / service 
+
+ 
+
+curl http://localhost:3000 
+
+ 
+
+ 
+
+ 
+
+7. Package Management (Ubuntu) 
+
+ 
+
+sudo apt update 
+
+sudo apt install nginx 
+
+sudo apt remove nginx 
+
+ 
+
+ 
+
+8. Permissions (VERY IMPORTANT) 
+
+Change permissions 
+
+ 
+
+chmod 755 file.sh 
+
+chmod +x script.sh 
+
+ 
+
+ 
+
+Change ownership 
+
+ 
+
+chown ubuntu:ubuntu file.txt 
+
+ 
+
+ 
+
+9. Logs & Debugging (SRE GOLD) 
+
+System logs 
+
+ 
+
+journalctl -u nginx 
+
+journalctl -f 
+
+ 
+
+ 
+
+Check service 
+
+ 
+
+systemctl status nginx 
+
+systemctl start nginx 
+
+systemctl stop nginx 
+
+ 
+
+ 
+
+10. Automation & Scripting Basics 
+
+Simple script 
+
+ 
+
+#!/bin/bash 
+
+echo "Hello Ashish" 
+
+ 
+
+Run: 
+
+ 
+
+chmod +x script.sh 
+
+./script.sh 
+
+ 
+
+ 
+
+Real SRE Scenarios (Important) 
+
+Scenario 1: App is slow 
+
+ 
+
+top 
+
+free -m 
+
+df -h 
+
+ 
+
+ 
+
+Scenario 2: Errors in logs 
+
+ 
+
+tail -f app.log | grep ERROR 
+
+ 
+
+ 
+
+Scenario 3: Service down 
+
+ 
+
+systemctl status app 
+
+systemctl restart app 
+
+ 
+
+ 
+
+Scenario 4: Port not responding 
+
+ 
+
+ss -tulnp | grep 8080 
+
+curl localhost:8080 
+
+ 
+
+ 
+
+Most Important Commands (Must Remember) 
+
+Category 
+
+Commands 
+
+Files 
+
+ls, cd, cp, mv, rm 
+
+Logs 
+
+tail, grep, less 
+
+System 
+
+top, df, free 
+
+Process 
+
+ps, kill 
+
+Network 
+
+curl, ping 
+
+Service 
+
+systemctl 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+Python Basics:  
+
+Python is: 
+
+Easy to learn 
+
+Powerful for automation 
+
+Widely used in DevOps, SRE, AI, and backend 
+
+ 
+
+Step 1: Install Python (Ubuntu) 
+
+ 
+
+sudo apt update 
+
+sudo apt install python3 python3-pip -y 
+
+ 
+
+Check: 
+
+ 
+
+python3 --version 
+
+ 
+
+ 
+
+Step 2: Basic Syntax 
+
+ 
+
+print("Hello Ashish") 
+
+ 
+
+ 
+
+Variables & Data Types 
+
+ 
+
+name = "Ashish"   # string 
+
+age = 25          # int 
+
+cpu = 75.5        # float 
+
+status = True     # boolean 
+
+ 
+
+ 
+
+Conditions 
+
+ 
+
+cpu = 80 
+
+ 
+
+if cpu > 75: 
+
+    print("High CPU Alert") 
+
+else: 
+
+    print("Normal") 
+
+ 
+
+SRE use: alert logic 
+
+ 
+
+Loops 
+
+For loop 
+
+ 
+
+for i in range(5): 
+
+    print(i) 
+
+ 
+
+While loop 
+
+ 
+
+i = 0 
+
+while i < 5: 
+
+    print(i) 
+
+    i += 1 
+
+ 
+
+ 
+
+Functions 
+
+ 
+
+def check_cpu(cpu): 
+
+    if cpu > 75: 
+
+        return "High CPU" 
+
+    return "OK" 
+
+ 
+
+print(check_cpu(80)) 
+
+ 
+
+ 
+
+File Handling (IMPORTANT) 
+
+ 
+
+with open("log.txt", "r") as f: 
+
+    data = f.read() 
+
+    print(data) 
+
+ 
+
+SRE use: log analysis 
+
+ 
+
+Parse Logs (Real Use Case) 
+
+ 
+
+with open("app.log") as f: 
+
+    for line in f: 
+
+        if "ERROR" in line: 
+
+            print(line) 
+
+ 
+
+ 
+
+API Calls (VERY IMPORTANT) 
+
+ 
+
+import requests 
+
+ 
+
+response = requests.get("https://api.github.com") 
+
+print(response.status_code) 
+
+print(response.json()) 
+
+ 
+
+Used for: 
+
+Monitoring APIs 
+
+Dynatrace / Prometheus APIs 
+
+ 
+
+Run Linux Commands in Python 
+
+ 
+
+import os 
+
+ 
+
+os.system("df -h") 
+
+ 
+
+Better way: 
+
+ 
+
+import subprocess 
+
+ 
+
+result = subprocess.run(["df", "-h"], capture_output=True, text=True) 
+
+print(result.stdout) 
+
+ 
+
+ 
+
+JSON Handling (Important for APIs) 
+
+ 
+
+import json 
+
+ 
+
+data = '{"name": "ashish", "cpu": 80}' 
+
+parsed = json.loads(data) 
+
+ 
+
+print(parsed["cpu"]) 
+
+ 
+
+ 
+
+Automation Example (SRE Level) 
+
+CPU Monitoring Script 
+
+ 
+
+import psutil 
+
+import os 
+
+ 
+
+cpu = psutil.cpu_percent() 
+
+ 
+
+if cpu > 75: 
+
+    print("High CPU! Restarting service...") 
+
+    os.system("systemctl restart nginx") 
+
+else: 
+
+    print("CPU Normal") 
+
+ 
+
+Install dependency: 
+
+ 
+
+pip3 install psutil 
+
+ 
+
+ 
+
+Log Monitoring Script 
+
+ 
+
+with open("/var/log/syslog") as f: 
+
+    for line in f: 
+
+        if "error" in line.lower(): 
+
+            print("Found error:", line) 
+
+ 
+
+ 
+
+Cron Job Automation 
+
+Run script every 5 minutes: 
+
+ 
+
+crontab -e 
+
+ 
+
+ 
+
+*/5 * * * * python3 /home/ubuntu/monitor.py 
+
+ 
+
+ 
+
+ 
+
+ 
+
+...................................... 
+
+ 
+
+Terraform Sample Script to Provision AWS EC2 Instance 
+ 
+1. Provider Configuration 
+
+provider "aws" { region = "ap-south-1" # Mumbai region } 
+
+2. Key Pair (Optional but recommended) 
+
+resource "aws_key_pair" "deployer" { key_name = "ec2-key" public_key = file("~/.ssh/id_rsa.pub") } 
+
+3. Security Group (Allow SSH + HTTP) 
+
+resource "aws_security_group" "ec2_sg" { name = "ec2-security-group" description = "Allow SSH and HTTP" 
+
+ingress { description = "SSH" from_port = 22 to_port = 22 protocol = "tcp" cidr_blocks = ["0.0.0.0/0"] } 
+
+ingress { description = "HTTP" from_port = 80 to_port = 80 protocol = "tcp" cidr_blocks = ["0.0.0.0/0"] } 
+
+egress { from_port = 0 to_port = 0 protocol = "-1" cidr_blocks = ["0.0.0.0/0"] } } 
+
+4. EC2 Instance 
+
+resource "aws_instance" "my_ec2" { ami = "ami-0f58b397bc5c1f2e8" # Amazon Linux 2 (Mumbai) instance_type = "t2.micro" 
+
+key_name = aws_key_pair.deployer.key_name security_groups = [aws_security_group.ec2_sg.name] 
+
+tags = { Name = "MyTerraformEC2" } } 
+
+5. Output Public IP 
+
+output "instance_public_ip" { value = aws_instance.my_ec2.public_ip } 
+
+ 
+
+ 
+
+ 

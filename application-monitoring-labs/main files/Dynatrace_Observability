@@ -1,0 +1,383 @@
+Observability Implementation Guide: Terraform + Application (Node.js) + Alerting + SLO + AWS Services  
+
+
+Task 1:   Objective: 
+
+Build a cloud-based observable application that:
+
+Tracks application-level metrics (NOT just infra)
+
+Simulates:
+Request count
+Latency
+Error rate
+
+Runs on AWS EC2 using Terraform   
+
+Application Summary (What You Created)
+
+You built a simple Node.js microservice using Express.js that is designed specifically for our Observability use cases.
+
+Core Purpose
+
+The application is used to:
+
+Simulate real user traffic
+Generate application-level metrics (SLIs)
+
+Help measure:
+
+Latency
+Request count
+Error rate
+Availability
+
+Endpoints You Created  /request - Simulates normal traffic /payment - Simulates failures
+
+
+
+Architecture Overview: 
+
+User → EC2 Instance → Node.js App → Endpoints (/request, /payment)
+↓
+Logs + Metrics
+↓
+Observability Tool (Dynatrace) 
+
+Tools Used:
+
+
+Infrastructure Setup (Terraform) :  
+
+Follow below steps:   
+Create Dir   
+
+mkdir observability-dynatrace
+cd observability-dynatrace 
+
+
+Lets create main.tf   
+
+vi main.tf   ## Add below config   
+
+………………………………………… 
+
+terraform {
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.0"
+    }
+    tls = {
+      source = "hashicorp/tls"
+    }
+    local = {
+      source = "hashicorp/local"
+    }
+  }
+}
+
+provider "aws" {
+  region = “us-east-1”  #Change accordingly
+}
+
+# -----------------------------
+# VARIABLES
+# -----------------------------
+variable "dynatrace_url" {}
+variable "dynatrace_token" {}
+
+# -----------------------------
+# KEY PAIR
+# -----------------------------
+resource "tls_private_key" "key" {
+  algorithm = "RSA"
+  rsa_bits  = 4096
+}
+
+resource "aws_key_pair" "generated" {
+  key_name   = "auto-key1"
+  public_key = tls_private_key.key.public_key_openssh
+}
+
+resource "local_file" "pem" {
+  filename        = "auto-key1.pem"
+  content         = tls_private_key.key.private_key_pem
+  file_permission = "0400"
+}
+
+# -----------------------------
+# SECURITY GROUP
+# -----------------------------
+resource "aws_security_group" "sg" {
+  name = "observability-sg"
+
+  ingress {
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  ingress {
+    from_port   = 3000
+    to_port     = 3000
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+}
+
+# -----------------------------
+# EC2 INSTANCE
+# -----------------------------
+resource "aws_instance" "obs" {
+  ami           = “ami-04680790a315cd58d”   #change accordingly
+  instance_type = "t2.micro"
+
+  key_name = aws_key_pair.generated.key_name
+
+  vpc_security_group_ids = [aws_security_group.sg.id]
+
+  user_data = <<-EOF
+              #!/bin/bash
+              apt update -y
+              curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+              sudo apt install -y nodejs
+
+
+              # --------------------
+              # Create Realistic App
+              # --------------------
+              
+              mkdir -p /home/ubuntu/app
+              cd /home/ubuntu/app
+              chown -R ubuntu:ubuntu /home/ubuntu/app
+              #curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+              #sudo apt install -y nodejs
+              
+              
+              cat <<APP > app.js
+              const express = require('express');
+              const app = express();
+
+              // Simulate request processing
+              app.get('/request', (req, res) => {
+                setTimeout(() => {
+                  res.send('Request processed');
+                }, Math.random() * 1000);
+              });
+
+              // Simulate payment API with failures
+              app.get('/payment', (req, res) => {
+                const delay = Math.random() * 2000;
+
+                setTimeout(() => {
+                  if (delay > 1500) {
+                    res.status(500).send('Payment failed');
+                  } else {
+                    res.send('Payment success');
+                  }
+                }, delay);
+              });
+
+              // Health endpoint
+              app.get('/', (req, res) => {
+                res.send('Service is running');
+              });
+
+              app.listen(3000, () => console.log('App running'));
+              APP
+
+              npm init -y
+              npm install
+              npm install express
+
+              nohup node app.js > app.log 2>&1 &
+              EOF
+
+  tags = {
+    Name = "monitor-test"
+  }
+}
+
+# -----------------------------
+# OUTPUTS
+# -----------------------------
+output "public_ip" {
+  value = aws_instance.obs.public_ip
+}
+
+output "app_url" {
+  value = "http://${aws_instance.obs.public_ip}:3000"
+}
+
+output "ssh_command" {
+  value = "ssh -i auto-key.pem ubuntu@${aws_instance.obs.public_ip}"
+}
+
+…………………………………  
+
+
+Initialize Terraform - terraform init
+
+Plan Infrastructure - terraform plan
+ Validate Configuration - terraform validate
+
+Apply Infrastructure - terraform apply
+
+
+
+
+Now, we will configure and integrate sample application (node.js) and Dynatrace for infra and application monitoring incase yet not installed.  
+Login to Server which has been created using terraform and follow below steps:  
+
+Node.js - As we have already kept the “app.js” file on server through script using user input, we will just install node and npm.  
+
+Install Node 20(version):   
+
+.......................................................................................
+
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+sudo apt install -y nodejs
+
+Verify :   
+node -v
+npm -v
+cd /home/ubuntu/app 
+sudo npm install
+node app.js   
+Test: on browser http://<public-ip>:3000 if accessible  
+
+.....................................................................
+NOTE:   
+
+TSG: If incase error use fix as mentioned below  error 1 :   /app$ sudo npm install 
+
+npm error code ENOENT
+npm error syscall open
+npm error path /home/ubuntu/app/package.json
+npm error errno -2
+npm error enoent Could not read package.json: Error: ENOENT: no such file or directory, open '/home/ubuntu/app/package.json'
+npm error enoent This is related to npm not being able to find a file.
+npm error enoent
+npm error A complete log of this run can be found in: /root/.npm/_logs/2026-04-04T18_19_53_530Z-debug-0.log   
+
+Fix: add file   
+
+vi package.json  # and add below config    
+
+---------------------------------------------
+
+{
+  "name": "app",
+  "version": "1.0.0",
+  "main": "app.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "express": "^5.2.1"
+  }
+}
+
+----------------------------------------------
+
+if still it does not fix reinstall node :  
+CLEAN FIX (Do this exactly)   
+Remove ALL old Node packages 
+
+sudo apt remove -y nodejs npm libnode-dev nodejs-doc
+sudo apt purge -y nodejs npm libnode-dev
+sudo apt autoremove -y  Clean broken dpkg state
+
+sudo dpkg --configure -a
+sudo apt clean
+
+#### Install Node 20 again: 
+
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+sudo apt install -y nodejs  
+
+### Verify -   
+
+node -v
+npm -v  
+
+
+### Reinstall your app dependencies:  
+
+cd /home/ubuntu/app
+
+rm -rf node_modules package-lock.json
+
+npm install 
+nohup node app.js &                       ## Run as background process   
+
+Now, you should be Able to access application.     
+
+Now, lets install and integrate Dynatrace: (we will use trail version of dynatrace)  
+Follow below steps to setup your dynatrace account:   https://www.dynatrace.com/try-free/
+Fill all required details (does not required any payment information)  
+
+Once done ->   Login to your Dynatrace account and navigate to Discovery and Coverage or Deployment Status  
+We need to get dynatrace one-agent installation command:    
+Use below command to install the one-agent on Host.
+
+…………………………………………........................................  
+
+wget -O Dynatrace-OneAgent.sh “https:// < > .live.dynatrace.com/api/v1/deployment/installer/agent/unix/default/latest?arch=x86" --header="Authorization: Api-Token < >  
+
+chmod +x Dynatrace-OneAgent.sh  
+
+sudo /bin/sh Dynatrace-OneAgent.sh \
+--set-monitoring-mode=fullstack \
+--set-app-log-content-access=true 
+
+………………………………………………………………….
+
+
+
+Now, on Dynatrace portal navigate to Deployment status:   
+you would see AWS host discovery on dynatrace :   
+Now you can check the metrics under Infra & Operation services for your host.    
+
+Infra Metrics:    
+
+Application Metrics: 
+
+Endpoints:  
+
+
+
+
+Task 2 : Dashboard + Alerting + SLO 
+
+
+Dashboard:   Navigate to Dashboard:    Alerting:   Navigate to workflow or Anomaly alerting.    
+
+
+SLO :   Navigate to SLO, we can create SLO for application endpoint or host.     
+
+
+-----------------------------------------------------------------------------------------------------
+to troubleshoot issue with app-monitoring in DT:
+cd /home/ubuntu/app
+top-----node  n OneAgent will be  running
+ps -ef | grep node
+sudo pkill node
+ps -ef | grep node
+nohup node app.js &
+#restart DT 
+systemctl status oneagent
+systemctl restart oneagent

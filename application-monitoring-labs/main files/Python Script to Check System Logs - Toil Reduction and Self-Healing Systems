@@ -1,0 +1,48 @@
+>>>>>>>>>>>>>  Identify repetitive operational tasks (e.g., log analysis) and automate them using Python <<<<<<<<<<<<<<<<
+
+Make sure you have python installed in your local system or incase using ec2 instance respectively.  
+
+
+Step 1 > create sudo vi fetch_logs.py file and save below config.
+
+.........................
+
+import re
+
+# Log file path (change as needed)
+LOG_FILE = "/var/log/syslog"
+
+def fetch_logs():
+    try:
+        with open(LOG_FILE, "r") as file:
+            logs = file.readlines()
+        
+        # Filter logs for keywords
+        filtered_logs = [log for log in logs if re.search(r"CRITICAL|FAILED|WARNING", log, re.IGNORECASE)]
+        
+        if filtered_logs:
+            print("\n **Filtered Logs Found:**\n")
+            for log in filtered_logs:
+                print(log.strip())
+        else:
+            print(“\n No critical logs found.\n")
+    
+    except Exception as e:
+        print(f”\n Error reading log file: {e}\n")
+
+# Run the log fetch function
+fetch_logs()
+
+..........................
+
+Step 2 > Run the Script
+
+make it executable:
+
+chmod +x fetch_logs.py
+
+Run the script:
+
+python3 fetch_logs.py
+
+ 

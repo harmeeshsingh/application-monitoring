@@ -1,0 +1,231 @@
+>>>>>>>>>>>>> Terraform script to deploy an EC2 instance with CloudWatch monitoring enabled <<<<<<<<<<<<
+
+Pre Requisit : Terraform and AWS CLI
+
+Connect you Local system to AWS account provind access and secreate access key from your AWS account.
+IAM > User > create access key and copy those key in your system using aws configure.
+
+Than, in your base machine configure 
+
+aws configure 
+
+and add required information like secret key, accekey id, region and format
+
+............................
+
+create folder :
+
+mkdir ec2_monitoring
+cd ec2_monitoring
+
+Create main.tf file and add below script.
+
+sudo vi main.tf
+
+................................
+
+provider "aws" {
+  region = "us-east-2"
+}
+
+# Generate a new SSH key pair
+resource "tls_private_key" "ec2_key" {
+  algorithm = "RSA"
+  rsa_bits  = 4096
+}
+
+resource "aws_key_pair" "ec2_key" {
+  key_name   = "ec2-key"
+  public_key = tls_private_key.ec2_key.public_key_openssh
+}
+
+resource "local_file" "private_key" {
+  content         = tls_private_key.ec2_key.private_key_pem
+  filename        = "ec2-key.pem"
+  file_permission = "0400"
+}
+
+# Security Group: allow SSH and HTTP
+resource "aws_security_group" "ec2_sg" {
+  name        = "ec2-sg"
+  description = "Allow SSH and HTTP"
+
+  ingress {
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  ingress {
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+}
+
+# IAM Role for CloudWatch Agent
+resource "aws_iam_role" "cw_agent_role" {
+  name = "cloudwatch-agent-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17",
+    Statement = [{
+      Effect = "Allow",
+      Principal = {
+        Service = "ec2.amazonaws.com"
+      },
+      Action = "sts:AssumeRole"
+    }]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "cw_attach" {
+  role       = aws_iam_role.cw_agent_role.name
+  policy_arn = "arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy"
+}
+
+# Instance profile
+resource "aws_iam_instance_profile" "cw_instance_profile" {
+  name = "cloudwatch-agent-profile"
+  role = aws_iam_role.cw_agent_role.name
+}
+
+# EC2 Instance with CloudWatch Agent setup
+resource "aws_instance" "example" {
+  ami                         = "ami-0cb91c7de36eed2cb"  # Ubuntu 22.04 LTS in us-east-2
+  instance_type               = "t2.micro"
+  key_name                    = aws_key_pair.ec2_key.key_name
+  monitoring                  = true
+  vpc_security_group_ids      = [aws_security_group.ec2_sg.id]
+  iam_instance_profile        = aws_iam_instance_profile.cw_instance_profile.name
+
+  user_data = <<-EOF
+              #!/bin/bash
+              sudo apt update
+              sudo apt install -y awscli unzip
+
+              # Download and install CloudWatch Agent
+              curl https://s3.amazonaws.com/amazoncloudwatch-agent/ubuntu/amd64/latest/amazon-cloudwatch-agent.deb -o amazon-cloudwatch-agent.deb
+              sudo dpkg -i -E ./amazon-cloudwatch-agent.deb
+
+              # Create config directory
+              sudo mkdir -p /opt/aws/amazon-cloudwatch-agent/etc
+
+              # Create CloudWatch config file
+              cat <<EOC > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json
+              {
+                "agent": {
+                  "metrics_collection_interval": 60,
+                  "run_as_user": "root"
+                },
+                "metrics": {
+                  "append_dimensions": {
+                    "InstanceId": "$${aws:InstanceId}"
+                  },
+                  "metrics_collected": {
+                    "cpu": {
+                      "measurement": [
+                        "cpu_usage_idle",
+                        "cpu_usage_iowait",
+                        "cpu_usage_user"
+                      ],
+                      "metrics_collection_interval": 60
+                    },
+                    "mem": {
+                      "measurement": [
+                        "mem_used_percent"
+                      ],
+                      "metrics_collection_interval": 60
+                    }
+                  }
+                }
+              }
+              EOC
+
+              # Start the CloudWatch Agent
+              sudo /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl \
+                -a fetch-config -m ec2 \
+                -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json -s
+              EOF
+
+  tags = {
+    Name = "cloudwatch-monitored-instance"
+  }
+}
+................................................
+
+terraform init
+terraform plan
+terraform validate
+terraform apply -auto-approve
+
+................................................
+
+
+
+
+In the AWS Console, go to:
+
+CloudWatch → Metrics → All Metrics → CWAgent
+
+You’ll see mem_used_percent, cpu_usage_user, etc.
+
+
+..............................................
+
+
+validate if properly installed cwagent >>>>>
+
+Run this command on the instance:
+
+     sudo /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -m ec2 -a status
+
+Expected output (if running):
+
+json
+Copy
+Edit
+{
+  "status": "running",
+  "starttime": "...",
+  "configstatus": "configured",
+  ...
+}
+
+>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+Step 1: Check if the config file exists
+Run this:
+
+cat /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json
+
+
+Step 2: Start the CloudWatch Agent with the config
+Run this command to apply the config and start the agent:
+
+sudo /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl \
+  -a fetch-config -m ec2 \
+  -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json -s
+
+Run this command on the EC2 instance:
+sudo sed -i 's/"InstanceId": ""/"InstanceId": "${aws:InstanceId}"/' /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json
+
+
+ Start the CloudWatch Agent Service
+Just run:
+
+sudo systemctl start amazon-cloudwatch-agent
+Then check status:
+
+sudo systemctl status amazon-cloudwatch-agent
+
+

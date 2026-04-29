@@ -1,0 +1,670 @@
+>>>>>>>>>>>>>>>>>>Task 1 - Implement a self-healing script to restart failed containers in a Kubernetes cluster<<<<<<<<<<<<<<<<< 
+
+
+Step-by-Step Guide: Self-Healing to Kubernetes (EKS) with Terraform
+
+Goal:
+
+Deploy an EKS cluster with self-healing features using Kubernetes liveness and readiness probes.
+If a pod crashes, Kubernetes automatically restarts it.
+If a node becomes unhealthy, EKS replaces it automatically using Auto Scaling Groups (ASG).
+
+
+Make sure you have connected from your local system to aws account using aws configure command and provide access key if and secret key.   
+(navigate to IAM > user > create new access key) and paste it in Vi ~/.aws/credentials.  
+
+
+Install Below Required Tools :
+
+# Terraform
+
+sudo apt update -y
+sudo apt install -y unzip
+curl -fsSL https://releases.hashicorp.com/terraform/1.7.0/terraform_1.7.0_linux_amd64.zip -o terraform.zip
+unzip terraform.zip
+sudo mv terraform /usr/local/bin/
+terraform -version
+
+
+
+# Install AWS CLI
+sudo apt install awscli -y
+aws configure
+
+
+# Install kubectl
+curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+chmod +x kubectl
+sudo mv kubectl /usr/local/bin/
+kubectl version --client
+
+
+
+# Install eksctl (Optional)
+curl -sSL "https://github.com/weaveworks/eksctl/releases/latest/download/eksctl_Linux_amd64.tar.gz" | tar -xz
+sudo mv eksctl /usr/local/bin/
+eksctl version
+
+
+
+>>>>>>> Step to follow:   
+
+Step 1 > Make sure you have connected using AWS Access KEY from your Local Machine to AWS Account.
+Step2 > create new folder where we will save all config file.  
+
+mkdir self-healing-script cd self-healing-script
+
+sudo vi main.tf (copy below config to main.tf and save)   
+
+................................
+
+provider "aws" {
+  region = "us-east-2"  # Change to your AWS region
+}
+
+# 🔹 Create VPC for EKS
+module "vpc" {
+  source = "terraform-aws-modules/vpc/aws"
+  name   = "eks-vpc"
+  cidr   = "10.0.0.0/16"
+  azs    = ["us-east-2a", "us-east-2b"]
+  public_subnets  = ["10.0.1.0/24", "10.0.2.0/24"]
+  private_subnets = ["10.0.3.0/24", "10.0.4.0/24"]
+  enable_nat_gateway = true
+}
+
+# 🔹 Create IAM Role for EKS
+resource "aws_iam_role" "eks_role" {
+  name = "eks-cluster-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Action = "sts:AssumeRole"
+      Effect = "Allow"
+      Principal = {
+        Service = ["eks.amazonaws.com", "ec2.amazonaws.com"]
+      }
+    }]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "eks_policy" {
+  role       = aws_iam_role.eks_role.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEKSClusterPolicy"
+}
+resource "aws_iam_role_policy_attachment" "eks_worker_node" {
+  role       = aws_iam_role.eks_role.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy"
+}
+
+resource "aws_iam_role_policy_attachment" "eks_cni_policy" {
+  role       = aws_iam_role.eks_role.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy"
+}
+
+resource "aws_iam_role_policy_attachment" "eks_ec2_policy" {
+  role       = aws_iam_role.eks_role.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
+}
+
+
+# 🔹 Create EKS Cluster
+resource "aws_eks_cluster" "eks" {
+  name     = "self-healing-eks"
+  role_arn = aws_iam_role.eks_role.arn
+  vpc_config {
+    subnet_ids = module.vpc.public_subnets
+  }
+}
+
+# 🔹 Create Node Group (Auto Scaling)
+resource "aws_eks_node_group" "self_healing_nodes" {
+  cluster_name    = aws_eks_cluster.eks.name
+  node_group_name = "self-healing-node-group"
+  node_role_arn   = aws_iam_role.eks_role.arn
+  subnet_ids      = module.vpc.private_subnets
+  instance_types  = ["t3.medium"]
+  scaling_config {
+    desired_size = 2
+    max_size     = 3
+    min_size     = 1
+  }
+}
+
+
+.............................
+
+
+
+>>>>>>> Deploy Terraform Configuration
+
+terraform init
+terraform plan
+terraform validate
+terraform apply --auto-approve
+
+
+>>>>>> Configure kubectl to Connect to EKS
+
+
+aws eks update-kubeconfig --name self-healing-eks --region us-east-2
+kubectl get nodes
+
+
+>>>>>> Deploy a Self-Healing Kubernetes Application:  We will now deploy an application with liveness and readiness probes to enable self-healing.
+Create a Deployment File (self-healing-app.yaml) and add below configuration.
+
+
+........................................
+
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: self-healing-app
+  labels:
+    app: self-healing
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: self-healing
+  template:
+    metadata:
+      labels:
+        app: self-healing
+    spec:
+      containers:
+      - name: self-healing-container
+        image: nginx
+        ports:
+        - containerPort: 80
+        resources:
+          requests:
+           cpu: "100m"
+          limits:
+           cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 10
+          periodSeconds: 5
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 5
+          periodSeconds: 3
+
+
+...........................
+
+
+>>>>> Deploy the Application to EKS :   
+
+kubectl apply -f self-healing-app.yaml
+kubectl get pods -w
+
+
+
+>>>>>> Test the Self-Healing System
+
+Manually Kill a Pod
+
+kubectl delete pod <POD_NAME>
+
+✅ Kubernetes will automatically restart the pod.
+
+kubectl get pods -w 
+
+
+You can run below command to get all cluster and deployment details.
+
+Check Cluster Status >>>>>  kubectl cluster-info
+Get Cluster Nodes >>>>> kubectl get nodes -o wide
+
+Get All Kubernetes Resources in the Cluster >>>>> kubectl get all —all-namespaces
+
+
+NOTE: to progress with task 2 Don't destroy the infrastructure.
+
+>>>>>>>>>> Destroy the infrastructure you have created.  
+
+terraform-destroy-auto-approve
+
+.........................
+
+>>>>>>>>> Summary <<<<<<<<<<<<
+
+Terraform-based EKS setup with Auto Scaling
+Kubernetes liveness & readiness probes for pod self-healing
+Node replacement using Auto Scaling when failures occur
+
+..........................
+
+
+Continue with Task 2 please keep progress with Task 1 
+
+
+>>>>>>>>>>>>>>> Task 2 - Automate Scaling of EKS Nodes Using Prometheus Alerting Rules & Kubernetes HPA <<<<<<<<<<<<<<<<< 
+
+
+We will automate scaling of EKS worker nodes based on CPU usage using: 
+
+Prometheus Alerting Rules (to detect high CPU usage)
+Kubernetes Horizontal Pod Autoscaler (HPA) (to scale pods automatically)
+KEDA (Kubernetes Event-Driven Autoscaling) (for event-based scaling)
+
+
+>>>>>>> So, How it Works?
+
+KEDA watches Prometheus metrics like container_cpu_usage_seconds_total.
+If CPU usage exceeds 50%, KEDA triggers scaling up.
+When CPU drops, it automatically scales down.
+
+
+>>>>>> Install Helm on Your System: For Ubuntu/Linux using below command
+
+curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+
+For Windows - choco install kubernetes-helm
+
+>>>> Verify Helm Installation
+
+helm version
+
+>>>>>>> Now, Install Prometheus & Alert manager on EKS
+
+We will deploy Prometheus using the Prometheus Operator.
+Add Prometheus Helm Repo & Install Prometheus
+
+helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+
+helm repo update
+
+helm install prometheus prometheus-community/kube-prometheus-stack --namespace monitoring --create-namespace
+#This should install Prometheus, Alertmanager
+
+
+>>>>>>>>> NOTE: only if, 
+
+If the installation is corrupted, uninstall it and retry:
+
+helm uninstall prometheus -n monitoring 
+kubectl delete namespace monitoring --wait
+
+If anything still exists, force delete it:
+
+kubectl delete all --all -n monitoring
+kubectl delete crds --selector=app.kubernetes.io/name=prometheus-operator
+
+
+>>>>>>>>>> Once installation completes, verify everything:
+
+kubectl get pods -n monitoring
+kubectl get prometheusrules -n monitoring
+kubectl logs -l app.kubernetes.io/name=prometheus-operator -n monitoring
+
+
+>>>>>>> Verify CRDs are Installed
+
+Check if the CRDs for Prometheus are installed:
+kubectl get crds | grep prometheus
+
+.................
+
+You should see output like:
+
+alertmanagers.monitoring.coreos.com
+podmonitors.monitoring.coreos.com
+prometheuses.monitoring.coreos.com
+prometheusrules.monitoring.coreos.com
+servicemonitors.monitoring.coreos.com
+
+....................
+
+
+>>>>>>>>> Install KEDA using Helm
+
+helm repo add kedacore https://kedacore.github.io/charts
+helm repo update
+helm install keda kedacore/keda --namespace keda --create-namespace
+
+[KEDA is now installed.]
+
+>>>>>>> Verify Metrics Server is Running
+
+kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
+
+>>>>>> Check if the metrics server is installed and running:
+
+kubectl get deployment -n kube-system | grep metrics-server
+
+
+>>>>>> Then verify metrics collection:
+
+kubectl top nodes
+kubectl top pods -n default
+
+
+Now, Define Prometheus Alerting Rule for High CPU
+Create a Prometheus alerting rule to detect high CPU usage (taking an example of 50% CPU Usage).
+
+Create cpu-alerts.yaml and add below config and save.
+
+..............................
+
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: high-cpu-alert
+  namespace: monitoring
+spec:
+  groups:
+  - name: cpu-alerts
+    rules:
+    - alert: HighCPUUsage
+      expr: avg(node_cpu_seconds_total{mode!="idle"}) by (instance) > 50
+      for: 1m
+      labels:
+        severity: warning
+      annotations:
+        summary: "High CPU Usage Detected"
+        description: "Node {{ $labels.instance }} has high CPU usage (>50%)"
+
+.................................
+
+
+This rule triggers if CPU usage > 50% for 1 minute.
+
+>>>>>>>> Apply the Alert Rule
+
+kubectl apply -f cpu-alerts.yaml
+
+
+The alert will be activated in Prometheus.
+Check if the PrometheusRule is created successfully:
+
+
+kubectl get prometheusrules -n monitoring
+
+
+View logs to confirm Prometheus is running:
+
+kubectl logs -l app.kubernetes.io/name=prometheus -n monitoring
+
+
+Check if Prometheus Operator is Running: 
+
+kubectl get pods -n monitoring
+
+Verify PrometheusRule API Version
+
+kubectl api-resources | grep prometheus
+
+……………………………………………………………………………….
+
+NOTE: only if, (troubleshooting)
+
+[ Restart Prometheus Operator ]
+If you face any issue restarting the Prometheus Operator:
+
+kubectl rollout restart deployment -n monitoring
+
+Check Logs for Errors
+If PrometheusRule still not working, check the logs:
+
+kubectl logs -l app.kubernetes.io/name=prometheus-operator -n monitoring 
+
+………………………………………………………………………………………………
+
+>>>>>>>> Configure Alertmanager to Trigger Scaling
+
+We will configure Alertmanager to send an alert when CPU is high
+Create ------  ------ and save below config.
+sudo vi alertmanager-config.yaml
+
+................................
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alertmanager-config
+  namespace: monitoring
+data:
+  alertmanager.yaml: |
+    route:
+      receiver: "scale-up"
+    receivers:
+      - name: "scale-up"
+        webhook_configs:
+          - url: "http://keda-webhook-service.keda:8080"
+
+
+...............................
+
+
+This sends alerts to KEDA to trigger auto-scaling.
+Apply the ConfigMap
+
+kubectl apply -f alertmanager-config.yaml
+
+>>>>>>> Create Alerting Rule for Pod Failures
+
+Now, create a rule for detecting pod crashes.
+Create ---------- sudo vi pod-failure-alert.yaml -------- and save the below config.
+
+................................
+
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: pod-failure-alert
+  namespace: monitoring
+spec:
+  groups:
+    - name: pod-failure-alerts
+      rules:
+        - alert: PodCrashLooping
+          expr: kube_pod_container_status_restarts_total > 3
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Pod is crashing frequently"
+            description: "Pod {{ $labels.pod }} in namespace {{ $labels.namespace }} is restarting frequently."
+
+
+.................................
+
+Apply the rule:
+
+kubectl apply -f pod-failure-alert.yaml
+
+
+>>>>>>>>> Now, Deploy Kubernetes HPA (Horizontal Pod Autoscaler)
+We will auto-scale a deployment based on CPU usage.
+
+Horizontal Pod Autoscaler YAML ------ sudo vi hpa.yaml ------ and below config.
+
+...............................
+
+
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: self-healing-app
+  namespace: default
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: self-healing-app
+  minReplicas: 1
+  maxReplicas: 5
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 50  # Scale when CPU > 50%
+
+
+
+..............................
+
+
+
+>>>>> Apply the Configuration
+
+kubectl apply -f hpa.yaml
+
+
+>>>>> Verify CPU Metrics
+Check if the HPA is detecting CPU usage:
+
+kubectl get hpa
+
+kubectl describe hpa self-healing-app
+
+kubectl top pods
+
+
+>>>>>>> Create HPA for Scaling Pods
+
+kubectl autoscale deployment self-healing-app --cpu-percent=50 --min=1 —max=3
+(if you see --cpu-percent is deprecated than, use --cpu=50%)
+
+This scales pods from 1 to 3 when CPU exceeds 50% usage.
+
+>>>>>>>> Now, Deploy KEDA for Event-Based Scaling
+KEDA allows scaling based on Prometheus alerts.
+
+Create a ScaledObject for Scaling Nodes
+
+sudo vi cpu-scaledobject.yaml
+
+................................
+
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: cpu-scaledobject
+  namespace: monitoring
+spec:
+  scaleTargetRef:
+    kind: Deployment
+    name: self-healing-app
+  triggers:
+    - type: prometheus
+      metadata:
+        serverAddress: http://prometheus-server.monitoring.svc.cluster.local
+        query: avg(node_cpu_seconds_total{mode!="idle"}) by (instance) > 50
+        threshold: "1"
+
+.................................
+
+This scales pods when Prometheus detects CPU > 50%
+
+Apply the Scaling Object ----- 
+
+kubectl apply -f cpu-scaledobject.yaml
+
+##### KEDA will scale pods automatically when CPU usage is high.
+
+>>>>> Verify Self-Healing is Enabled: 
+
+kubectl get deployment self-healing-app -o yaml | grep restartPolicy
+
+
+------ Expected Output:---------
+
+restartPolicy: Always
+
+
+...........................
+
+
+Check Existing Alerts
+
+kubectl get prometheusrules -n monitoring
+
+This will list all Prometheus alerting rules.
+
+
+To check if scaling happens after simulating high CPU usage, follow these steps:
+
+
+Step 1: Verify Alerts & Self-Healing
+
+Test CPU Spike:
+Run Stress Test on a Pod
+
+NOTE: 
+If you already have a stress-test pod, restart it:
+
+kubectl delete pod stress-test
+
+kubectl run stress-test --image=ubuntu --restart=Never -- /bin/bash -c "apt update && apt install -y stress && stress --cpu 2 --timeout 300"
+
+To check the current active alerts, run:
+
+kubectl port-forward -n monitoring prometheus-prometheus-kube-prometheus-prometheus-0 9090
+
+http://127.0.0.1:9090/alerts open in browser
+
+
+👉 Status → Alerts (Check if any alerts are firing)
+OR
+Step 2: Simulate Pod Failure
+
+To simulate a pod failure, manually delete one of the running pods:
+
+kubectl get pods
+
+(Select anyone pod from above list except stress pod)
+
+kubectl delete pod <pod-name>
+
+
+>>>>>>>>>> Check Alert Status:
+
+kubectl get prometheusrule -n monitoring
+kubectl logs -l app=alertmanager -n monitoring
+
+
+Step 3: Auto-Healing with Kubernetes
+
+Once an alert is triggered, Kubernetes automatically restarts failing pods based on the 
+
+restartPolicy: Always
+
+>>>>>>>>>>> Verify Self-Healing:
+
+kubectl get pods -n monitoring
+
+(All pod should be running to make sure pods auto start)
+
+
+
+>>>>>>>>>>>>> Summary <<<<<<<<<<<<<<<<<<<<
+
+Prometheus Alerting Rules (to detect high CPU usage) 
+Kubernetes Horizontal Pod Autoscaler (HPA) (to scale pods automatically) 
+KEDA (Kubernetes Event-Driven Autoscaling) (for event-based scaling)
+
+One, lab is completed - Make sure you destroy the infrastructure you have created.  
+
+terraform-destroy-auto-approve
+
+………………………………………
+
+🎯 Key Differences: HPA vs KEDA
+
+
+
+We have integrated both in our lab for use case scenario.
+
