@@ -59,4 +59,31 @@ Before you begin, ensure you have the following installed:
 
 ## 🤝 Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request or open an issue for any feature requests or bug reports.
+Contributions are welcome!! Please feel free to submit a Pull Request or open an issue for any feature requests or bug you found.Your efforts will bring this repo a clean and single source for entertaining the monitoring.
+
+
+--------------------------------------------------------------------------------------------------------------------------
+
+# Scaneris for the labs
+
+## To access the content of the file go the file [AI-SRE](/AI-SRE/)
+### Task 1 — Infrastructure Capacity Monitoring Setup [access-the-file](/AI-SRE/AI_capabiliity_planning.md)
+Design and implement a cloud-based infrastructure monitoring workflow for compute resource utilization tracking. The solution should support automated metric collection, threshold-based alerting, and operational visibility for infrastructure health monitoring across AWS resources.
+
+Key responsibilities:
+    Configure infrastructure monitoring components
+    Enable automated alerting mechanisms
+    Validate monitoring accuracy under workload conditions
+    Ensure operational readiness of the monitoring pipeline
+    Maintain infrastructure deployment consistency using IaC practices
+
+
+### Task 2 — AI-Assisted Predictive SRE Workflow [access-the-file](/AI-SRE/AI_SRE_RCA.md)
+Develop a predictive operations workflow capable of identifying potential infrastructure capacity risks before service degradation occurs. The implementation should support automated analysis, scheduled execution, and proactive operational notifications aligned with SRE practices.
+
+Key responsibilities:
+    Implement serverless analysis workflow
+    Establish event-driven operational automation
+    Enable predictive resource utilization analysis
+    Integrate notification and escalation workflow
+    Validate proactive alert generation during stress scenarios

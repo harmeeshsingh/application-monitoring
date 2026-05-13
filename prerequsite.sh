@@ -5,10 +5,10 @@ sudo apt update -y && sudo apt upgrade -y
 sudo apt install -y unzip
 
 #install python
-sudo apt install -y python3 python3-pip
+#sudo apt install -y python3 python3-pip
 
 #Install Ansible
-sudo apt install -y ansible
+#sudo apt install -y ansible
 
 #install terraform
 sudo apt update -y
@@ -22,10 +22,10 @@ sudo apt install awscli -y
 
 
 # Install kubectl
-curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-chmod +x kubectl
-sudo mv kubectl /usr/local/bin/
-kubectl version --client
+# curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+# chmod +x kubectl
+# sudo mv kubectl /usr/local/bin/
+# kubectl version --client
 
 
 #verison check
